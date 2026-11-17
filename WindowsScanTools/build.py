@@ -34,6 +34,7 @@ def main():
                  'scan_branding','scan_identity','desktop_access','platform_runtime','scan_image_io']:
         shutil.copy2(ROOT / 'MacScanWorker' / (name + '.py'), worker / (name + '.py'))
     shutil.copy2(ROOT / 'MacScanWorker/desktop-access.json', worker / 'desktop-access.json')
+    shutil.copy2(ROOT / 'MacScanWorker/repair_editor.html', worker / 'repair_editor.html')
     shutil.copytree(ROOT / 'MacScanWorker/Branding', worker / 'Branding')
     for name in ['windows_access.py','windows_entry.py']:
         shutil.copy2(HERE / name, resources / 'worker' / name)

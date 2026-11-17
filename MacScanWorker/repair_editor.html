@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guided room repair</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#121214;color:#edf1ef}body{margin:0}main{max-width:1200px;margin:auto;padding:22px}.brandbar{display:flex;align-items:center;gap:14px;margin-bottom:14px}.brandbar img{border-radius:12px}.brandbar h1{font-size:25px;margin:0}p{line-height:1.5}.layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:24px}.controls{display:flex;flex-direction:column;gap:14px}label{display:grid;gap:7px}button,select{font:inherit;padding:11px;border:1px solid #4d5a60;border-radius:9px;background:#20292d;color:inherit}button{cursor:pointer}button.active,button.primary{background:#ff8a3d;color:#171a1b;border-color:#ff8a3d}button:disabled{opacity:.5;cursor:wait}.modes{display:grid;gap:8px}.row{display:flex;gap:8px;flex-wrap:wrap}.notice{color:#c8d1ce;font-size:14px}canvas{display:block;max-width:100%;max-height:78vh;width:auto;height:auto;margin:auto;background:#20292d;border-radius:8px;touch-action:none}.photo{min-width:0;background:#182025;border-radius:12px;padding:12px}#status{min-height:24px;overflow-wrap:anywhere}a{color:#ffb56f}@media(max-width:740px){.layout{display:flex;flex-direction:column;gap:10px}.controls{display:contents}.controls>label{order:0}.modes{order:1}#instruction{order:2;margin:0}.photo{order:3}.controls>.row{order:4}#reference{order:5}#summary{order:6;margin:0}#save{order:7}#status{order:8;margin:0}.modes{grid-template-columns:repeat(3,1fr)}.modes button{font-size:13px;padding:9px}canvas{max-height:46vh}main{padding:14px}h1{font-size:21px}}
+</style>
+</head>
+<body><main>
+<header class="brandbar"><a id="brand-home" hidden><img id="brand-logo" alt="" width="52" height="52"></a><h1>DRU Scan Tools · Guided repair</h1></header>
+<p class="notice">Flat walls and floor are assumed. Hidden surfaces are inferred. Object details, dimensions and completeness remain unverified. The original scan is preserved.</p>
+<div class="layout"><section class="controls">
+<label>Photo<select id="photo"></select></label>
+<div class="modes">
+<button id="wall0" type="button">First wall floor edge</button>
+<button id="wall1" type="button">Second wall floor edge</button>
+<button id="object" type="button">Foreground outline</button>
+</div>
+<p id="instruction">Review the suggested floor edges and drag their handles to match the photo.</p>
+<p id="suggestions" class="notice"></p>
+<div class="row"><button id="undo" type="button">Undo point</button><button id="clear" type="button">Clear these markings</button></div>
+<button id="reference" type="button">Use this foreground photo</button>
+<p id="summary" class="notice"></p>
+<button id="draft" type="button">Save markings draft</button>
+<button id="save" class="primary" type="button">Create repaired copy</button>
+<p id="status" role="status" aria-live="polite"></p>
+</section><section class="photo"><canvas id="canvas" aria-label="Upright captured photograph. Drag handles to adjust repair markings. Tap to add a point."></canvas></section></div>
+</main>
+<script>
+'use strict';
+const data = __REPAIR_DATA__;
+if (data.brand_title) {
+  document.querySelector('h1').textContent = data.brand_title + ' · Guided repair';
+  document.title = data.brand_title + ' · Guided repair';
+  if (data.brand_logo) {
+    const home = document.getElementById('brand-home');
+    home.hidden = false;
+    home.href = data.home_url || '/';
+    home.setAttribute('aria-label', data.brand_title + ' main menu');
+    document.getElementById('brand-logo').src = data.brand_logo;
+  }
+}
+const android = typeof AndroidRepair !== 'undefined';
+const byId = id => document.getElementById(id);
+const photoSelect = byId('photo');
+const canvas = byId('canvas');
+const context = canvas.getContext('2d');
+const picture = new Image();
+let mode = 'wall0';
+let currentPhoto = data.images[0].filename;
+let loadingPhoto = 0;
+let markings = data.preset || {
+  scan_id: data.scan_id,
+  description: 'User-marked guided room repair. Upright photo pixels, clockwise rotation.',
+  grid_step_m: 0.015,
+  foreground_reference: '',
+  color_references: [],
+  occluders: {},
+  walls: [
+    {name: 'First wall', contacts: [], fallback_rgb: [202,205,198]},
+    {name: 'Second wall', contacts: [], fallback_rgb: [185,181,167]}
+  ]
+};
+const draftKey = `dru-repair-draft-${data.scan_id}`;
+try {
+  const saved = JSON.parse(localStorage.getItem(draftKey));
+  if (saved && saved.scan_id === data.scan_id) markings = saved;
+} catch (_) { /* Device storage may be unavailable in the embedded editor. */ }
+markings.scan_id = data.scan_id;
+if (data.suggestions) {
+  for (let index=0; index<2; index++) {
+    if (!markings.walls[index].contacts.some(row => row.pixels.length)) {
+      markings.walls[index].contacts = structuredClone(data.suggestions.walls[index].contacts);
+    }
+  }
+  if (!Object.values(markings.occluders).some(polygon => polygon.length)) {
+    markings.occluders = structuredClone(data.suggestions.occluders);
+    markings.foreground_reference = data.suggestions.foreground_reference;
+    markings.color_references = [...data.suggestions.color_references];
+  }
+}
+byId('suggestions').textContent = data.suggestion_note || 'Drag existing handles to adjust a line. Tap to add points where needed.';
+const histories = [];
+function remember() { histories.push(JSON.stringify(markings)); if (histories.length > 50) histories.shift(); }
+function changed() {
+  try { localStorage.setItem(draftKey, JSON.stringify(markings)); } catch (_) { }
+  redraw();
+}
+async function saveDraft() {
+  changed();
+  if (android) {
+    const response = JSON.parse(AndroidRepair.saveDraft(JSON.stringify(markings)));
+    if (!response.ok) throw new Error(response.error || 'Draft could not be saved.');
+  } else {
+    const response = await fetch(data.draft_url, {method:'POST', headers:{'Content-Type':'application/json','X-Repair-Token':data.token}, body:JSON.stringify(markings)});
+    if (!response.ok) throw new Error('Draft could not be saved. Keep this page open and retry.');
+  }
+  byId('status').textContent = 'Markings draft saved on this device.';
+}
+byId('draft').onclick = () => saveDraft().catch(showError);
+for (const image of data.images) {
+  const option = document.createElement('option');
+  option.value = image.filename;
+  const labels = markings.walls.flatMap((wall,index) => wall.contacts.some(row => row.image === image.filename && row.pixels.length) ? [`wall ${index+1}`] : []);
+  if (markings.occluders[image.filename]?.length) labels.push('outline');
+  option.textContent = image.filename + (labels.length ? ` · ${labels.join(', ')}` : '');
+  photoSelect.appendChild(option);
+}
+if (markings.foreground_reference) currentPhoto = markings.foreground_reference;
+else currentPhoto = markings.walls.find(wall => wall.contacts.length)?.contacts[0].image || currentPhoto;
+photoSelect.value = currentPhoto;
+if (android) byId('save').textContent = 'Save repair markings';
+
+function points(create=false) {
+  if (mode === 'object') {
+    if (create && !markings.occluders[currentPhoto]) markings.occluders[currentPhoto] = [];
+    return markings.occluders[currentPhoto] || [];
+  }
+  const wall = markings.walls[mode === 'wall0' ? 0 : 1];
+  let row = wall.contacts.find(contact => contact.image === currentPhoto);
+  if (!row && create) {
+    row = {image: currentPhoto, pixels: []};
+    wall.contacts.push(row);
+  }
+  return row ? row.pixels : [];
+}
+
+function drawPoints(vertices, color, close) {
+  if (!vertices.length) return;
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.lineWidth = Math.max(3, canvas.width / 160);
+  context.beginPath();
+  vertices.forEach((point, index) => index ? context.lineTo(...point) : context.moveTo(...point));
+  if (close && vertices.length > 2) context.closePath();
+  context.stroke();
+  for (const point of vertices) {
+    context.beginPath();
+    context.arc(point[0], point[1], canvas.width / 65, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function redraw() {
+  if (!picture.complete || !picture.naturalWidth) return;
+  canvas.width = picture.naturalHeight;
+  canvas.height = picture.naturalWidth;
+  context.save();
+  context.translate(canvas.width, 0);
+  context.rotate(Math.PI / 2);
+  context.drawImage(picture, 0, 0);
+  context.restore();
+  for (let index=0; index<2; index++) {
+    const row = markings.walls[index].contacts.find(contact => contact.image === currentPhoto);
+    drawPoints(row ? row.pixels : [], index ? '#ffb56f' : '#69e4b1', false);
+  }
+  drawPoints(markings.occluders[currentPhoto] || [], '#73c6ff', true);
+  const counts = markings.walls.map(wall => wall.contacts.reduce((total, row) => total + row.pixels.length, 0));
+  byId('summary').textContent = `Floor-edge points ${counts[0]} / ${counts[1]}. Foreground photo ${markings.foreground_reference || 'choose a photo with an outline'}.`;
+}
+
+async function showPhoto() {
+  const sequence = ++loadingPhoto;
+  byId('status').textContent = 'Loading photo…';
+  const url = android ? AndroidRepair.getPhoto(currentPhoto) : `${data.photo_url}?name=${encodeURIComponent(currentPhoto)}`;
+  if (!url) { byId('status').textContent = 'Photo could not be loaded.'; return; }
+  picture.onload = () => {
+    if (sequence !== loadingPhoto) return;
+    byId('status').textContent = '';
+    redraw();
+  };
+  picture.onerror = () => { byId('status').textContent = 'Photo could not be loaded.'; };
+  picture.src = url;
+}
+
+function chooseMode(value) {
+  mode = value;
+  for (const name of ['wall0','wall1','object']) byId(name).classList.toggle('active', name === mode);
+  byId('instruction').textContent = mode === 'object'
+    ? 'Drag the outline handles or trace the outside of foreground objects. Add outlines in other photos to protect object boundaries.'
+    : `Drag the handles or mark two separated points where the ${mode === 'wall0' ? 'first' : 'second'} wall meets the floor. Additional photos can improve support.`;
+}
+for (const name of ['wall0','wall1','object']) byId(name).onclick = () => chooseMode(name);
+photoSelect.onchange = () => { currentPhoto = photoSelect.value; showPhoto(); };
+function eventPoint(event) {
+  const bounds = canvas.getBoundingClientRect();
+  return [Math.round(Math.max(0, Math.min(canvas.width-1, (event.clientX-bounds.left)/bounds.width*canvas.width))),
+          Math.round(Math.max(0, Math.min(canvas.height-1, (event.clientY-bounds.top)/bounds.height*canvas.height)))];
+}
+let dragging = -1;
+canvas.onpointerdown = event => {
+  if (!picture.complete || !picture.naturalWidth) return;
+  event.preventDefault();
+  remember();
+  const position = eventPoint(event);
+  const vertices = points(true);
+  const threshold = 22 * canvas.width / canvas.getBoundingClientRect().width;
+  dragging = vertices.findIndex(point => Math.hypot(point[0]-position[0],point[1]-position[1]) <= threshold);
+  if (dragging < 0) { vertices.push(position); dragging = vertices.length-1; }
+  if (mode === 'object' && !markings.foreground_reference) markings.foreground_reference = currentPhoto;
+  canvas.setPointerCapture(event.pointerId);
+  changed();
+};
+canvas.onpointermove = event => {
+  if (dragging < 0) return;
+  points()[dragging] = eventPoint(event);
+  changed();
+};
+canvas.onpointerup = canvas.onpointercancel = () => { dragging = -1; };
+byId('undo').onclick = () => { if (histories.length) markings = JSON.parse(histories.pop()); changed(); };
+byId('clear').onclick = () => { remember(); points().splice(0); changed(); };
+byId('reference').onclick = () => {
+  if ((markings.occluders[currentPhoto] || []).length < 3) {
+    byId('status').textContent = 'First outline the objects in this photo.';
+    return;
+  }
+  remember();
+  markings.foreground_reference = currentPhoto;
+  changed();
+};
+
+async function poll(url) {
+  const response = await fetch(url, {cache: 'no-store'});
+  if (!response.ok) throw new Error('Repair status could not be read. Check the scan results.');
+  const status = await response.json();
+  byId('status').textContent = status.state === 'queued' ? 'Queued. This Mac processes one scan or repair at a time.' : 'Creating the repaired copy…';
+  if (status.state === 'done') {
+    byId('status').textContent = 'Repaired copy ready. ';
+    const link = document.createElement('a');
+    link.href = status.model_url;
+    link.textContent = 'Open repaired model';
+    byId('status').appendChild(link);
+    byId('save').disabled = false;
+  } else if (status.state === 'failed') {
+    throw new Error(status.error || 'Repair failed. The original scan is preserved.');
+  } else {
+    window.setTimeout(() => poll(url).catch(showError), 1500);
+  }
+}
+function showError(error) {
+  byId('status').textContent = error.message;
+  byId('save').disabled = false;
+}
+byId('save').onclick = async () => {
+  try {
+    markings.walls.forEach(wall => { wall.contacts = wall.contacts.filter(row => row.pixels.length); });
+    for (const name of Object.keys(markings.occluders)) {
+      if (!markings.occluders[name].length) delete markings.occluders[name];
+    }
+    if (markings.walls.some(wall => wall.contacts.reduce((total,row) => total+row.pixels.length,0)<2)) throw new Error('Each wall needs two separated floor-edge points.');
+    if ((markings.occluders[markings.foreground_reference] || []).length < 3) throw new Error('Outline foreground objects in the reference photo.');
+    if (!markings.color_references.length) markings.color_references = Object.keys(markings.occluders);
+    await saveDraft();
+    byId('save').disabled = true;
+    if (android) {
+      const saved = JSON.parse(AndroidRepair.saveMarkings(JSON.stringify(markings)));
+      if (!saved.ok) throw new Error(saved.error || 'Repair markings could not be saved.');
+      byId('status').textContent = 'Markings saved. Export this scan ZIP and import it into the Mac companion. Open the repaired PLY in BridgeCheck after processing.';
+      byId('save').disabled = false;
+    } else {
+      const response = await fetch(data.submit_url, {method:'POST', headers:{'Content-Type':'application/json','X-Repair-Token':data.token},body:JSON.stringify(markings)});
+      const request = await response.json();
+      if (!response.ok) throw new Error(request.error || 'Repair could not be queued.');
+      await poll(request.status_url);
+    }
+  } catch (error) { showError(error); }
+};
+chooseMode(mode);
+showPhoto();
+</script>
+</body></html>

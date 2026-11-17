@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import zipfile
+import urllib.request
 
 HERE = Path(__file__).resolve().parent
 
@@ -75,10 +76,30 @@ def main():
         env = os.environ.copy()
         env['PYTHONPATH'] = str(installed / 'resources/worker')
         run([python,'-P','-c','from scan_image_io import read_image; import sys; assert read_image(sys.argv[1]) is not None',image],env=env)
+        server = subprocess.Popen([str(value) for value in base + ['worker'] + locations], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic() + 60
+            while True:
+                try:
+                    with urllib.request.urlopen('http://127.0.0.1:8765/?product=bridgecheck', timeout=5) as response:
+                        library = response.read().decode('utf-8')
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(1)
+            assert 'BridgeCheck AR Scan Tools' in library and 'This PC' in library
+            with urllib.request.urlopen('http://127.0.0.1:8765/' + status['job_id'] + '/model.html?product=bridgecheck', timeout=30) as response:
+                assert 'BridgeCheck AR Scan Tools' in response.read().decode('utf-8')
+            with urllib.request.urlopen('http://127.0.0.1:8765/' + status['job_id'] + '/repair.html?product=bridgecheck', timeout=60) as response:
+                assert 'BridgeCheck' in response.read().decode('utf-8')
+        finally:
+            server.terminate()
+            server.wait(timeout=30)
         report = {'state':'passed','platform':'Windows Server 2025 x64 GitHub-hosted runner',
                   'native_launcher_self_test':'passed','per_user_install':'passed','runtime_relocation':'passed',
                   'dpapi':'passed','real_trial_activation':'passed','license_import_export':'passed',
-                  'reinstall_preserves_data':'passed','source_archive_integrity':'passed','unicode_image_path':'passed',
+                  'reinstall_preserves_data':'passed','source_archive_integrity':'passed','unicode_image_path':'passed','local_library_viewer_repair_http':'passed',
                   'synthetic_photos':len(cameras),'reconstruction_seconds':round(time.monotonic()-started,3),
                   'model_zip_bytes':(output / 'model-deliverable.zip').stat().st_size,'geometry_accuracy':'independent physical accuracy unverified',
                   'authenticode':'unsigned','interactive_google_apple_sign_in':'manual Windows verification pending'}

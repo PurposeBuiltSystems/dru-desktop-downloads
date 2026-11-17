@@ -19,6 +19,8 @@ jobs:
           python-version: '3.12'
       - name: Build self-contained installer
         run: python WindowsScanTools/build.py
+      - name: Verify license and sign-in protocol
+        run: WindowsScanTools/bundle/python/python.exe -I -X utf8 WindowsScanTools/test_windows_access.py -v
       - name: Generate synthetic capture
         run: WindowsScanTools/bundle/python/python.exe WindowsScanTools/make_test_capture.py WindowsScanTools/synthetic-photo-scan.zip
       - name: Verify installer and full scan workflow

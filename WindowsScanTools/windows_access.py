@@ -127,6 +127,12 @@ def status(configuration_path, state_path):
         return {'allowed': True, 'kind': claims['kind'], 'message': message, 'days_remaining': days}
 
 
+class ServiceError(ValueError):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
 def post(url, body, headers=None):
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={'Content-Type': 'application/json', **(headers or {})})
     try:
@@ -136,11 +142,14 @@ def post(url, body, headers=None):
                 raise ValueError('The license service returned an oversized response.')
             return json.loads(data)
     except urllib.error.HTTPError as error:
-        # Provider response bodies can contain authentication details.
+        try:
+            code = json.loads(error.read(65536)).get('error', '')
+        except (ValueError, OSError):
+            code = ''
         messages = {401: 'Sign in again to continue.', 402: 'This account needs active DRU Pro access.',
                     403: 'The license is unavailable. Refresh or contact PurposeBuilt support.',
                     409: 'The request was already handled. Refresh your license before retrying.'}
-        raise ValueError(messages.get(error.code, 'The license service is temporarily unavailable. Please retry.')) from None
+        raise ServiceError(messages.get(error.code, 'The license service is temporarily unavailable. Please retry.'), code) from None
 
 
 def perform(action, configuration_path, state_path, auth_token=None):
@@ -157,7 +166,13 @@ def perform(action, configuration_path, state_path, auth_token=None):
         if auth_token:
             payload['auth_token'] = auth_token
         raw = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode()
-        response = post(configuration['origin'] + '/' + action, {'payload': b64(raw), 'signature': b64(private.sign(raw))})
+        try:
+            response = post(configuration['origin'] + '/' + action, {'payload': b64(raw), 'signature': b64(private.sign(raw))})
+        except ServiceError as error:
+            if error.code == 'license_revoked':
+                record.pop('license', None)
+                save_state(state_path, record)
+            raise
         if response.get('license'):
             verify(response['license'], configuration, device)
             record['license'] = response['license']
@@ -213,7 +228,7 @@ def sign_in(provider, configuration_path):
             self.wfile.write(message)
     with HTTPServer(('127.0.0.1', 8766), Receiver) as server:
         server.timeout = 1
-        redirect = 'http://127.0.0.1:8766' + callback
+        redirect = 'http://127.0.0.1:' + str(server.server_port) + callback
         parameters = urllib.parse.urlencode({'provider': provider, 'redirect_to': redirect, 'code_challenge': challenge, 'code_challenge_method': 's256'})
         webbrowser.open(configuration['auth_url'] + '/authorize?' + parameters)
         deadline = time.monotonic() + 300

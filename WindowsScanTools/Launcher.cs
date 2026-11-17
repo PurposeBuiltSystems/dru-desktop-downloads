@@ -70,8 +70,9 @@ internal sealed class ScanRuntime : IDisposable {
         if (!AssignProcessToJobObject(job, process.Handle)) { process.Kill(); throw new System.ComponentModel.Win32Exception(); }
         return process;
     }
-    internal string Run(string command, string action, string file) {
-        using (var process = Start(command, action, file)) {
+    internal string Run(string command, string action, string file, System.Threading.CancellationToken cancellation = default(System.Threading.CancellationToken)) {
+        using (var process = Start(command, action, file))
+        using (var registration = cancellation.Register(() => { try { if(!process.HasExited)process.Kill(); } catch(InvalidOperationException) { } })) {
             var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
             process.WaitForExit(); Task.WaitAll(stdout, stderr);
             if (process.ExitCode != 0) {
@@ -154,7 +155,9 @@ internal sealed class ScanForm : Form {
         var cloud=new LinkLabel { Text="Open Scan Cloud", AutoSize=true, Margin=new Padding(0,8,20,0) };
         cloud.Click+=(s,e)=>ScanRuntime.Open("https://scan-cloud-production.up.railway.app/");
         footer.Controls.Add(account); footer.Controls.Add(cloud); layout.Controls.Add(footer); Controls.Add(layout); SetBrand();
-        Shown+=async(s,e)=> { try { await Task.Run(()=>runtime.Run("bootstrap",null,null)); runtime.StartWorker(); UpdateStatus(); } catch(Exception error) { status.Text=error.Message; import.Enabled=false; } };
+        Shown+=async(s,e)=> { try { await Task.Run(()=>runtime.Run("bootstrap",null,null)); runtime.StartWorker(); UpdateStatus();
+            try { var cached=await Task.Run(()=>runtime.Status()); if(Convert.ToString(cached["kind"])!="unlicensed") await Task.Run(()=>runtime.Run("access","license",null)); } catch(Exception) { }
+            UpdateStatus(); } catch(Exception error) { status.Text=error.Message; import.Enabled=false; } };
         refresh.Interval=15000; refresh.Tick+=(s,e)=>UpdateStatus(); refresh.Start();
         FormClosing+=(s,e)=> { if(runtime.HasActiveWork() && MessageBox.Show(this,"A scan is processing. Close Scan Tools and retry it when you reopen? Your original photo ZIP is retained.","Processing scan",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes) e.Cancel=true; };
         FormClosed+=(s,e)=>refresh.Dispose();
@@ -191,6 +194,7 @@ internal sealed class AccountForm : Form {
     private readonly ScanRuntime runtime;
     private readonly Label result=new Label();
     private readonly FlowLayoutPanel actions=new FlowLayoutPanel();
+    private readonly System.Threading.CancellationTokenSource cancellation = new System.Threading.CancellationTokenSource();
     internal AccountForm(ScanRuntime runtime) {
         this.runtime=runtime; Text="Scan Tools account"; ClientSize=new Size(490,365); FormBorderStyle=FormBorderStyle.FixedDialog;
         MaximizeBox=false; MinimizeBox=false; StartPosition=FormStartPosition.CenterParent; Font=new Font("Segoe UI",10); BackColor=Color.FromArgb(242,242,247);
@@ -201,6 +205,7 @@ internal sealed class AccountForm : Form {
         Add("Refresh license","license"); Add("Import license file","import"); Add("Save license file","export");
         Controls.Add(new Label { Text="Active DRU Pro includes desktop access. The trial requires no payment method. Purchased version-1 licenses support offline processing.",Bounds=new Rectangle(24,285,440,70),ForeColor=Color.FromArgb(90,90,100) });
         Shown+=async(s,e)=>await Perform("status");
+        FormClosed+=(s,e)=> { cancellation.Cancel(); cancellation.Dispose(); };
     }
     private void Add(string label,string action) {
         var button=new Button { Text=label,AutoSize=true,Padding=new Padding(9,5,9,5),Height=39,FlatStyle=FlatStyle.Flat,BackColor=Color.White };
@@ -211,7 +216,7 @@ internal sealed class AccountForm : Form {
         if(action=="import") { using(var dialog=new OpenFileDialog { Filter="License JSON (*.json)|*.json" }) { if(dialog.ShowDialog(this)!=DialogResult.OK)return; file=dialog.FileName; } }
         if(action=="export") { using(var dialog=new SaveFileDialog { Filter="License JSON (*.json)|*.json",FileName="PurposeBuilt-Scan-Tools-license.json" }) { if(dialog.ShowDialog(this)!=DialogResult.OK)return; file=dialog.FileName; } }
         actions.Enabled=false; result.Text=(action=="google"||action=="apple")?"Finish sign-in in your browser. This can take up to five minutes.":"Checking your desktop access…";
-        try { string output=await Task.Run(()=>runtime.Run("access",action,file)); var value=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(output); if(!IsDisposed)result.Text=Convert.ToString(value["message"]); }
+        try { string output=await Task.Run(()=>runtime.Run("access",action,file,cancellation.Token)); var value=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(output); if(!IsDisposed)result.Text=Convert.ToString(value["message"]); }
         catch(Exception error) { if(!IsDisposed)result.Text=error.Message; }
         finally { if(!IsDisposed)actions.Enabled=true; }
     }

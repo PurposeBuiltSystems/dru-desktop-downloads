@@ -56,13 +56,13 @@ def main():
         raise RuntimeError('Microsoft redistributable CRT files are missing')
     for file in crt_folders[-1].glob('*.dll'):
         shutil.copy2(file, python / file.name)
-    from PIL import Image
-    with Image.open(resources / 'worker/Branding/dru-logo.png') as image:
-        image.save(HERE / 'app.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+    subprocess.run([str(python / 'python.exe'), '-I', '-c',
+                    'from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2], sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])',
+                    str(resources / 'worker/Branding/dru-logo.png'), str(HERE / 'app.ico')], check=True)
     compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     subprocess.run([str(compiler), '/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/win32icon:' + str(HERE / 'app.ico'), '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', '/reference:System.Web.Extensions.dll', '/out:' + str(BUNDLE / 'PurposeBuiltScanTools.exe'), str(HERE / 'Launcher.cs')], check=True)
     # Resolve imports using the relocated runtime before starting a long reconstruction test.
-    subprocess.run([str(python / 'python.exe'), '-I', str(resources / 'worker/windows_entry.py'), 'self-test', '--support-root', str(HERE / 'QA support'), '--scan-root', str(HERE / 'QA scans')], check=True)
+    subprocess.run([str(python / 'python.exe'), '-I', '-X', 'utf8', str(resources / 'worker/windows_entry.py'), 'self-test', '--support-root', str(HERE / 'QA support'), '--scan-root', str(HERE / 'QA scans')], check=True)
     inno = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')) / 'Inno Setup 6/ISCC.exe'
     subprocess.run([str(inno),str(HERE / 'installer.iss')],check=True,cwd=HERE)
     installer = HERE / 'output/PurposeBuilt-Scan-Tools-Windows-x64.exe'

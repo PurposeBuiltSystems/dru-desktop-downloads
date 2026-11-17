@@ -55,7 +55,7 @@ internal sealed class ScanRuntime : IDisposable {
     }
     private Process Start(string command, string action, string file) {
         Directory.CreateDirectory(Support);
-        var arguments = new List<string> { "-I", Path.Combine(Resources, "worker", "windows_entry.py"), command,
+        var arguments = new List<string> { "-I", "-X", "utf8", Path.Combine(Resources, "worker", "windows_entry.py"), command,
             "--support-root", Support, "--scan-root", Scans };
         if (action != null) { arguments.Add("--action"); arguments.Add(action); }
         if (file != null) { arguments.Add("--file"); arguments.Add(file); }

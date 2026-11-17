@@ -45,7 +45,7 @@ def main():
     resources = HERE.parent
     support, scans = args.support_root.resolve(), args.scan_root.resolve()
     config, config_path = configure(support, scans, resources)
-    os.environ.update(PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', TORCH_HOME=str(resources / 'vendor/torch-cache'))
+    os.environ.update(PYTHONUTF8='1', PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', TORCH_HOME=str(resources / 'vendor/torch-cache'))
     os.environ['PYTHONPATH'] = os.pathsep.join([str(HERE), config['dru_scripts'], config['mapanything_source']])
     if args.command == 'bootstrap':
         print(json.dumps({'config': str(config_path), 'scans': str(scans)}))

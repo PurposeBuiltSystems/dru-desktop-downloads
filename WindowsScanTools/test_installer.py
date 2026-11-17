@@ -24,11 +24,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix='PurposeBuilt installer ') as work:
         root = Path(work)
         installed = root / 'Installed App'
-        support, scans = root / 'QA support', root / 'Project scans'
+        support, scans = root / 'QA support', root / 'Project scans é-桥'
         run([installer, '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/DIR='+str(installed)])
         python = installed / 'python/python.exe'
         entry = installed / 'resources/worker/windows_entry.py'
-        base = [python, '-I', entry]
+        base = [python, '-I', '-X', 'utf8', entry]
         locations = ['--support-root',support,'--scan-root',scans]
         native = subprocess.run([str(installed / 'PurposeBuiltScanTools.exe'),'--self-test'],capture_output=True,text=True,encoding='utf-8',timeout=120)
         assert native.returncode == 0, native.stdout + native.stderr

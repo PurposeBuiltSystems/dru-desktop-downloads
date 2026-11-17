@@ -90,6 +90,9 @@ def main():
         print(json.dumps({'imported': destination.name}))
     else:
         sys.path.extend([config['dru_scripts'], config['mapanything_source']])
+        import ctypes
+        code_page = ctypes.WinDLL('kernel32').GetACP()
+        assert code_page == 65001, 'The bundled runtime must use a UTF-8 Windows code page'
         import torch
         import pycolmap
         import open3d
@@ -98,7 +101,7 @@ def main():
         from windows_access import protect, status
         assert protect(protect(b'Windows account test'), decrypt=True) == b'Windows account test'
         print(json.dumps({'status': 'passed', 'python': sys.version.split()[0], 'torch': torch.__version__,
-                          'pycolmap': pycolmap.__version__, 'open3d': open3d.__version__, 'dpapi': 'passed',
+                          'pycolmap': pycolmap.__version__, 'open3d': open3d.__version__, 'dpapi': 'passed', 'windows_code_page': code_page,
                           'license_state': status(config['access_configuration'], config['access_state'])['kind']}))
 
 

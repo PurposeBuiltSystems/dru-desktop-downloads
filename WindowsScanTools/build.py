@@ -21,6 +21,8 @@ def main():
     BUNDLE.mkdir()
     python = BUNDLE / 'python'
     shutil.copytree(Path(sys.base_prefix), python, ignore=shutil.ignore_patterns('site-packages', '__pycache__', 'Scripts', 'Doc', 'Tools'))
+    from utf8_runtime import configure
+    configure(python / 'python.exe', HERE)
     site = python / 'Lib/site-packages'
     site.mkdir(parents=True, exist_ok=True)
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-compile', '--target', str(site),

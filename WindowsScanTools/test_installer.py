@@ -34,7 +34,7 @@ def main():
         native = subprocess.run([str(installed / 'PurposeBuiltScanTools.exe'),'--self-test'],capture_output=True,text=True,encoding='utf-8',timeout=120)
         assert native.returncode == 0, native.stdout + native.stderr
         smoke = json.loads(run(base + ['self-test'] + locations).strip().splitlines()[-1])
-        assert smoke['dpapi'] == 'passed'
+        assert smoke['dpapi'] == 'passed' and smoke['windows_code_page'] == 65001
         trial = json.loads(run(base + ['access','--action','trial'] + locations))
         assert trial['allowed'] and trial['kind'] == 'trial'
         state = support / 'desktop-access.dpapi'
@@ -98,7 +98,7 @@ def main():
             server.wait(timeout=30)
         report = {'state':'passed','platform':'Windows Server 2025 x64 GitHub-hosted runner',
                   'native_launcher_self_test':'passed','per_user_install':'passed','runtime_relocation':'passed',
-                  'dpapi':'passed','real_trial_activation':'passed','license_import_export':'passed',
+                  'dpapi':'passed','windows_utf8_code_page':65001,'real_trial_activation':'passed','license_import_export':'passed',
                   'reinstall_preserves_data':'passed','source_archive_integrity':'passed','unicode_image_path':'passed','local_library_viewer_repair_http':'passed',
                   'synthetic_photos':len(cameras),'reconstruction_seconds':round(time.monotonic()-started,3),
                   'model_zip_bytes':(output / 'model-deliverable.zip').stat().st_size,'geometry_accuracy':'independent physical accuracy unverified',

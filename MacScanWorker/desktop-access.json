@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "origin": "https://lqmlwtlvoltdaxiwixqq.supabase.co/functions/v1/desktop-licensing",
+  "public_key": "pb5vXwCqYKoTUbCSPOHINJMHFxplduJedvwRl5knvRk=",
+  "product": "dru_desktop_scan_tools_v1",
+  "major_version": 1,
+  "trial_days": 14,
+  "auth_url": "https://lqmlwtlvoltdaxiwixqq.supabase.co/auth/v1",
+  "publishable_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxxbWx3dGx2b2x0ZGF4aXdpeHFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMDUxOTcsImV4cCI6MjA5NDg4MTE5N30.kzyT5RFZwX8ujZ8U7LEV0PS6Mp4uSQYlQHoViKgkOjg"
+}

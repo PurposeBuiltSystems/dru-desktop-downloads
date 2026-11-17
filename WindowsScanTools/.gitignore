@@ -1,0 +1,6 @@
+bundle/
+output/
+QA support/
+QA scans/
+model.zip
+__pycache__/

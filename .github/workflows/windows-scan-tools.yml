@@ -1,0 +1,32 @@
+name: Windows Scan Tools installer
+on:
+  push:
+    branches: [codex/windows-scan-tools]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-scan-tools-installer
+  cancel-in-progress: false
+jobs:
+  build-and-test:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build self-contained installer
+        run: python WindowsScanTools/build.py
+      - name: Generate synthetic capture
+        run: WindowsScanTools/bundle/python/python.exe WindowsScanTools/make_test_capture.py WindowsScanTools/synthetic-photo-scan.zip
+      - name: Verify installer and full scan workflow
+        run: python WindowsScanTools/test_installer.py
+      - name: Upload tested Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PurposeBuilt-Scan-Tools-Windows-x64
+          path: WindowsScanTools/output/*
+          compression-level: 0
+          if-no-files-found: error
